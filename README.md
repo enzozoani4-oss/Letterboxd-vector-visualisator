@@ -9,7 +9,8 @@ Site web statique (sans back-end) pour **importer ses données Letterboxd, visua
 - **Import de l'export officiel Letterboxd** (fichier `.zip` obtenu sur [letterboxd.com → Paramètres → Données → Exporter](https://letterboxd.com/settings/data/)) : films, notes et journal sont fusionnés.
 - **Profil de visionnage** : nombre de films, note moyenne, coups de cœur, distribution des notes, films par décennie.
 - **Bibliothèque** : tableau triable et filtrable (note, année, date de visionnage, liens Letterboxd).
-- **Recommandations personnalisées** : à partir de vos meilleurs films notés, le site interroge l'[API TMDB](https://www.themoviedb.org/) (gratuite) et croise les recommandations officielles de chaque film source, en excluant ce que vous avez déjà vu.
+- **Recommandations par critères (sans clé API)** : choisissez des films, réalisateurs, acteurs, genres et mots-clés (thèmes abordés) sous forme de puces — le site interroge [Wikidata](https://www.wikidata.org/) en direct et croise directeur, cast, genres, thèmes et notoriété. Les films choisis dans votre bibliothèque sont pondérés par votre note. Les films déjà vus sont exclus.
+- **Recommandations personnalisées TMDB** : à partir de vos meilleurs films notés, le site interroge l'[API TMDB](https://www.themoviedb.org/) (gratuite, clé requise) et croise les recommandations officielles de chaque film source, en excluant ce que vous avez déjà vu.
 - **Genres favoris** : calculés via TMDB sur vos meilleurs films et affichés en barres.
 - **Mode démo** : un bouton « données de démo » permet d'explorer le site sans export.
 - Tout est calculé **localement dans le navigateur** ; la clé TMDB est stockée uniquement dans `localStorage`.
@@ -38,6 +39,7 @@ css/style.css       Thème sombre, inspiré de Letterboxd
 js/csv-parser.js    Parseur CSV robuste (guillemets, virgules, retours ligne)
 js/importer.js      Lecture du .zip (JSZip) et fusion des CSV d'export
 js/app.js           État, rendu des stats/bibliothèque/recommandations
+js/wikidata.js      Moteur de recommandations par critères via SPARQL (sans clé API)
 js/tmdb.js          Client TMDB (recherche, genres, recommandations) + cache localStorage
 js/demo-data.js     Jeu de données de démonstration
 ```
@@ -53,3 +55,4 @@ js/demo-data.js     Jeu de données de démonstration
 - L'export Letterboxd ne contient pas les genres : ils sont estimés via TMDB sur vos 12 meilleurs films.
 - Les recommandations SQL/JSON de TMDB sont en `fr-FR` quand disponibles.
 - TMDB limite le débit : le site applique une concurrence de 4 requêtes et met en cache chaque réponse.
+- Le mode par critères est limité à 12 critères par recherche (limite de débit anonyme de Wikidata) ; chaque critère et chaque recherche est mis en cache en mémoire.

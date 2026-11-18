@@ -1,11 +1,15 @@
 import { importExportZip } from "./importer.js";
 import { demoEntries } from "./demo-data.js";
 import { buildRecommendations, getApiKey, saveApiKey, findMovieId, getMovieDetails, runWithConcurrency } from "./tmdb.js";
+import { GENRE_SUGGESTIONS, findEntity, searchFilms } from "./wikidata.js";
+
+const MAX_SEEDS = 12;
 
 const state = {
   entries: [],
   librarySort: { key: "rating", dir: "desc" },
   libraryFilter: "",
+  criteria: { film: [], director: [], actor: [], keyword: [], genre: new Set() },
 };
 
 const formatNumber = (n) => new Intl.NumberFormat("fr-FR").format(n);
@@ -101,6 +105,8 @@ function loadEntries(entries, isDemo, extras = {}) {
       "success"
     );
   }
+
+  fillLibraryDatalist();
 
   if (getApiKey()) {
     document.getElementById("tmdb-key").value = getApiKey();
@@ -295,6 +301,200 @@ function recoCard(item) {
     </div>`;
 }
 
+/* ================= RECOMMANDATIONS PAR CRITÈRES ================= */
+
+function normalizeTitle(value) {
+  return String(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function seenSet() {
+  return new Set(state.entries.map((e) => `${normalizeTitle(e.name)}|${e.year || ""}`));
+}
+
+function fillLibraryDatalist() {
+  const datalist = document.getElementById("library-datalist");
+  const names = [...new Set(state.entries.map((e) => e.name))].sort((a, b) => a.localeCompare(b, "fr"));
+  datalist.innerHTML = names.map((name) => `<option value="${escapeAttr(name)}"></option>`).join("");
+}
+
+function setupCriteria() {
+  const kinds = ["film", "director", "actor", "keyword"];
+  const inputs = {};
+  for (const kind of kinds) {
+    inputs[kind] = document.getElementById(`criteria-${kind}`);
+    inputs[kind].addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        addCriteriaChip(kind, inputs[kind].value);
+        inputs[kind].value = "";
+      }
+    });
+    inputs[kind].addEventListener("blur", () => {
+      if (inputs[kind].value.trim()) {
+        addCriteriaChip(kind, inputs[kind].value);
+        inputs[kind].value = "";
+      }
+    });
+  }
+
+  const genreList = document.getElementById("criteria-genre-list");
+  genreList.innerHTML = GENRE_SUGGESTIONS.map(
+    (genre) => `<button type="button" class="genre-pill" data-genre="${escapeAttr(genre)}">${escapeHtml(genre)}</button>`
+  ).join("");
+  genreList.addEventListener("click", (e) => {
+    const pill = e.target.closest(".genre-pill");
+    if (!pill) return;
+    const genre = pill.dataset.genre;
+    if (state.criteria.genre.has(genre)) {
+      state.criteria.genre.delete(genre);
+      pill.classList.remove("active");
+    } else {
+      state.criteria.genre.add(genre);
+      pill.classList.add("active");
+    }
+  });
+
+  document.getElementById("criteria-btn").addEventListener("click", runCriteria);
+}
+
+function addCriteriaChip(kind, label) {
+  const value = label.trim().replace(/\s+/g, " ");
+  if (!value) return;
+  const list = state.criteria[kind];
+  if (list.some((chip) => normalizeTitle(chip) === normalizeTitle(value))) return;
+  const total = state.criteria.film.length + state.criteria.director.length +
+    state.criteria.actor.length + state.criteria.keyword.length + state.criteria.genre.size;
+  if (total >= MAX_SEEDS) {
+    setStatus("criteria-status", `${MAX_SEEDS} critères maximum (pour éviter la limitation de débit de Wikidata).`, "error");
+    return;
+  }
+  state.criteria[kind].push(value);
+  renderCriteriaChips(kind);
+  setStatus("criteria-status", "");
+}
+
+function renderCriteriaChips(kind) {
+  const container = document.getElementById(`chips-${kind}`);
+  container.innerHTML = state.criteria[kind]
+    .map(
+      (label, index) =>
+        `<span class="chip">${escapeHtml(label)}<button type="button" class="chip-remove" data-kind="${kind}" data-index="${index}" aria-label="Retirer ${escapeAttr(label)}">×</button></span>`
+    )
+    .join("");
+}
+
+function setupChipRemoval() {
+  document.getElementById("reco-section").addEventListener("click", (e) => {
+    const btn = e.target.closest(".chip-remove");
+    if (!btn) return;
+    state.criteria[btn.dataset.kind].splice(Number(btn.dataset.index), 1);
+    renderCriteriaChips(btn.dataset.kind);
+  });
+}
+
+async function resolveCriteria(status) {
+  const groups = [
+    { kind: "film", key: "filmIds", terms: state.criteria.film },
+    { kind: "person", key: "personIds", terms: [...state.criteria.director, ...state.criteria.actor] },
+    { kind: "genre", key: "genreIds", terms: [...state.criteria.genre] },
+    { kind: "theme", key: "themeIds", terms: state.criteria.keyword },
+  ];
+
+  const resolved = { filmIds: [], personIds: [], genreIds: [], themeIds: [] };
+  const missing = [];
+  const byLibrary = new Map(state.entries.map((e) => [normalizeTitle(e.name), e]));
+
+  let step = 0;
+  const totalSteps = groups.reduce((s, g) => s + g.terms.length, 0);
+  for (const group of groups) {
+    for (const term of group.terms) {
+      step++;
+      status(`Critère ${step}/${totalSteps} : « ${term} »…`);
+      const entity = await findEntity(term, group.kind).catch((error) => {
+        if (/limite|injoignable/.test(error.message)) throw error;
+        return null;
+      });
+      if (!entity) {
+        missing.push(term);
+        continue;
+      }
+      if (group.key === "filmIds" && !resolved.filmIds.some((f) => f.id === entity.id)) {
+        const lib = byLibrary.get(normalizeTitle(term));
+        entity.weight = lib?.rating ?? 2.5;
+        resolved.filmIds.push(entity);
+      } else if (group.key !== "filmIds" && !resolved[group.key].some((s) => s.id === entity.id)) {
+        resolved[group.key].push(entity);
+      }
+    }
+  }
+  return { resolved, missing, totalSteps };
+}
+
+function criteriaCard(item) {
+  const poster = item.image
+    ? `<img src="${escapeAttr(item.image)}" alt="Affiche de ${escapeAttr(item.title)}" loading="lazy" />`
+    : '<img src="data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'342\' height=\'513\'%3E%3Crect fill=\'%23242a31\' width=\'342\' height=\'513\'/%3E%3C/svg%3E" alt="" />';
+  return `
+    <div class="reco-card">
+      ${poster}
+      <div class="reco-info">
+        <div class="reco-title">${escapeHtml(item.title)}</div>
+        <div class="reco-meta">${escapeHtml(item.year || "")} · match ${item.score.toFixed(1)}</div>
+        <div class="reco-source">via ${escapeHtml(item.why.join(", "))}</div>
+      </div>
+    </div>`;
+}
+
+async function runCriteria() {
+  const btn = document.getElementById("criteria-btn");
+  const grid = document.getElementById("criteria-grid");
+  const hasCriteria = state.criteria.film.length || state.criteria.director.length ||
+    state.criteria.actor.length || state.criteria.keyword.length || state.criteria.genre.size;
+  if (!hasCriteria) {
+    setStatus("criteria-status", "Ajoutez au moins un film, réalisateur, acteur, genre ou mot-clé.", "error");
+    return;
+  }
+
+  btn.disabled = true;
+  grid.innerHTML = "";
+  try {
+    const status = (msg) => setStatus("criteria-status", msg);
+    const { resolved, missing, totalSteps } = await resolveCriteria(status);
+    const foundCount = resolved.filmIds.length + resolved.personIds.length + resolved.genreIds.length + resolved.themeIds.length;
+    if (!foundCount) {
+      setStatus("criteria-status", "Aucun critère n'a été reconnu sur Wikidata. Vérifiez l'orthographe.", "error");
+      return;
+    }
+
+    status(`Recherche des films correspondant à vos ${foundCount} critères…`);
+    const items = await searchFilms({
+      ...resolved,
+      seedWeights: Object.fromEntries(resolved.filmIds.map((f) => [f.id, f.weight ?? 2.5])),
+      onProgress: status,
+    });
+
+    const seen = seenSet();
+    const fresh = items.filter((item) => !seen.has(`${normalizeTitle(item.title)}|${item.year || ""}`)).slice(0, 24);
+    grid.innerHTML = fresh.map(criteriaCard).join("");
+
+    const missingText = missing.length ? ` Critères non reconnus : ${missing.join(", ")}.` : "";
+    setStatus(
+      "criteria-status",
+      `${fresh.length} recommandations à partir de ${foundCount} critère(s) sur ${totalSteps}.${missingText}`,
+      "success"
+    );
+  } catch (error) {
+    setStatus("criteria-status", error.message, "error");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 function setupRecos() {
   const keyInput = document.getElementById("tmdb-key");
   const keyBtn = document.getElementById("tmdb-key-save");
@@ -348,3 +548,5 @@ function escapeAttr(value) {
 setupImport();
 setupLibrary();
 setupRecos();
+setupCriteria();
+setupChipRemoval();
