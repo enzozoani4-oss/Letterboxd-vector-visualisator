@@ -9,8 +9,8 @@ Site web statique (sans back-end) pour **importer ses données Letterboxd, visua
 - **Import de l'export officiel Letterboxd** (fichier `.zip` obtenu sur [letterboxd.com → Paramètres → Données → Exporter](https://letterboxd.com/settings/data/)) : films, notes et journal sont fusionnés.
 - **Profil de visionnage** : nombre de films, note moyenne, coups de cœur, distribution des notes, films par décennie.
 - **Bibliothèque** : tableau triable et filtrable (note, année, date de visionnage, liens Letterboxd).
-- **Recommandations par critères (sans clé API)** : choisissez des films, réalisateurs, acteurs, genres et mots-clés (thèmes abordés) sous forme de puces — le site interroge [Wikidata](https://www.wikidata.org/) en direct et croise directeur, cast, genres, thèmes et notoriété. Les films choisis dans votre bibliothèque sont pondérés par votre note. Les films déjà vus sont exclus.
-- **Recommandations personnalisées TMDB** : à partir de vos meilleurs films notés, le site interroge l'[API TMDB](https://www.themoviedb.org/) (gratuite, clé requise) et croise les recommandations officielles de chaque film source, en excluant ce que vous avez déjà vu.
+- **Recommandations par critères (sans clé API)** : menus déroulants pour choisir des films (parmi ceux de votre bibliothèque, autocomplétion), réalisateurs, acteurs et mots-clés (thèmes abordés), plus des puces de genres — le site interroge [Wikidata](https://www.wikidata.org/) en direct et croise directeur, cast, genres, thèmes et notoriété. Les films choisis sont pondérés par votre note. Les films déjà vus sont exclus.
+- **Un seul bouton "Générer mes recommandations"** : il combine automatiquement les résultats Wikidata (critères choisis) et TMDB (si la clé est enregistrée), dédoublonne, exclut les films vus et classe le tout par pertinence.
 - **Genres favoris** : calculés via TMDB sur vos meilleurs films et affichés en barres.
 - **Mode démo** : un bouton « données de démo » permet d'explorer le site sans export.
 - Tout est calculé **localement dans le navigateur** ; la clé TMDB est stockée uniquement dans `localStorage`.
@@ -19,7 +19,7 @@ Site web statique (sans back-end) pour **importer ses données Letterboxd, visua
 
 1. Sur Letterboxd : **Paramètres → Importer & exporter → Exporter vos données** → téléchargez le `.zip`.
 2. Ouvrez le site et déposez le `.zip` dans la zone d'import.
-3. Pour les recommandations : créez un compte gratuit sur [themoviedb.org](https://www.themoviedb.org/signup), générez une [clé API](https://www.themoviedb.org/settings/api) (type « Developer ») et collez-la dans la section « Films recommandés ».
+3. Optionnel : collez votre [clé API TMDB](https://www.themoviedb.org/settings/api) dans la barre toujours visible en haut de page — sans clé, les recommandations par critères fonctionnent quand même via Wikidata.
 
 > Les données d'export Letterboxd peuvent prendre quelques minutes à être générées après la demande.
 

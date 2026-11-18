@@ -1,7 +1,7 @@
 import { importExportZip } from "./importer.js";
 import { demoEntries } from "./demo-data.js";
 import { buildRecommendations, getApiKey, saveApiKey, findMovieId, getMovieDetails, runWithConcurrency } from "./tmdb.js";
-import { GENRE_SUGGESTIONS, findEntity, searchFilms } from "./wikidata.js";
+import { GENRE_SUGGESTIONS, findEntity, searchFilms, suggestEntities } from "./wikidata.js";
 
 const MAX_SEEDS = 12;
 
@@ -95,7 +95,6 @@ function loadEntries(entries, isDemo, extras = {}) {
   document.getElementById("demo-btn").classList.add("hidden");
 
   if (isDemo) {
-    document.getElementById("reco-controls").classList.add("hidden");
     setStatus("import-status", "Données de démonstration chargées — déposez votre export pour vos vraies données.");
   } else {
     const filesText = (extras.filesFound ?? []).join(", ");
@@ -106,15 +105,11 @@ function loadEntries(entries, isDemo, extras = {}) {
     );
   }
 
-  fillLibraryDatalist();
-
   if (getApiKey()) {
     document.getElementById("tmdb-key").value = getApiKey();
     document.getElementById("tmdb-key-status").textContent = "Clé enregistrée dans ce navigateur.";
     document.getElementById("tmdb-key-status").className = "status success";
   }
-  if (!isDemo && getApiKey()) document.getElementById("reco-controls").classList.remove("hidden");
-
   renderStats();
   renderLibrary();
   renderGenrePanelPlaceholder();
@@ -283,25 +278,7 @@ function setupLibrary() {
   });
 }
 
-/* ================= RECOMMANDATIONS ================= */
-
-function recoCard(item) {
-  const sourceStars = stars(item.sourceRating);
-  const poster = item.poster
-    ? `<img src="${escapeAttr(item.poster)}" alt="Affiche de ${escapeAttr(item.title)}" loading="lazy" />`
-    : '<img src="data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'342\' height=\'513\'%3E%3Crect fill=\'%23242a31\' width=\'342\' height=\'513\'/%3E%3C/svg%3E" alt="" />';
-  return `
-    <div class="reco-card">
-      ${poster}
-      <div class="reco-info">
-        <div class="reco-title">${escapeHtml(item.title)}</div>
-        <div class="reco-meta">${escapeHtml(item.year || "")} ${item.vote ? "· TMDB " + item.vote.toFixed(1) : ""}</div>
-        <div class="reco-source">car vous avez aimé « ${escapeHtml(item.sourceName)} »</div>
-      </div>
-    </div>`;
-}
-
-/* ================= RECOMMANDATIONS PAR CRITÈRES ================= */
+/* ================= RECOMMANDATIONS (Wikidata + TMDB) ================= */
 
 function normalizeTitle(value) {
   return String(value)
@@ -316,29 +293,97 @@ function seenSet() {
   return new Set(state.entries.map((e) => `${normalizeTitle(e.name)}|${e.year || ""}`));
 }
 
-function fillLibraryDatalist() {
-  const datalist = document.getElementById("library-datalist");
-  const names = [...new Set(state.entries.map((e) => e.name))].sort((a, b) => a.localeCompare(b, "fr"));
-  datalist.innerHTML = names.map((name) => `<option value="${escapeAttr(name)}"></option>`).join("");
+function libraryFilms() {
+  return [...new Map(state.entries.map((e) => [normalizeTitle(e.name), e])).values()]
+    .sort((a, b) => (b.rating ?? -1) - (a.rating ?? -1));
 }
 
 function setupCriteria() {
-  const kinds = ["film", "director", "actor", "keyword"];
-  const inputs = {};
-  for (const kind of kinds) {
-    inputs[kind] = document.getElementById(`criteria-${kind}`);
-    inputs[kind].addEventListener("keydown", (e) => {
+  for (const kind of ["film", "director", "actor", "keyword"]) {
+    const input = document.getElementById(`criteria-${kind}`);
+    const dropdown = document.getElementById(`dropdown-${kind}`);
+    let suggestions = [];
+    let timer;
+
+    const close = () => dropdown.classList.add("hidden");
+    const open = () => dropdown.classList.remove("hidden");
+
+    const renderSuggestions = () => {
+      if (!suggestions.length) {
+        close();
+        return;
+      }
+      dropdown.innerHTML = suggestions
+        .map(
+          (s, i) =>
+            `<button type="button" class="dropdown-item" data-index="${i}"><span>${escapeHtml(s.label)}</span>${s.detail ? `<span class="dropdown-detail">${s.detail}</span>` : ""}</button>`
+        )
+        .join("");
+      open();
+    };
+
+    const pick = (value) => {
+      addCriteriaChip(kind, value);
+      input.value = "";
+      suggestions = [];
+      close();
+    };
+
+    input.addEventListener("input", () => {
+      clearTimeout(timer);
+      const query = input.value.trim();
+      if (!query) {
+        suggestions = [];
+        close();
+        return;
+      }
+      if (kind === "film") {
+        const q = normalizeTitle(query);
+        suggestions = libraryFilms()
+          .filter((e) => normalizeTitle(e.name).includes(q))
+          .slice(0, 8)
+          .map((e) => ({ label: e.name, detail: `${e.year || ""} ${stars(e.rating)}` }));
+        renderSuggestions();
+        return;
+      }
+      timer = setTimeout(async () => {
+        try {
+          const entities = await suggestEntities(query, kind === "keyword" ? "theme" : "person");
+          suggestions = entities.map((entity) => ({ label: entity.label, detail: "" }));
+          renderSuggestions();
+        } catch {
+          close();
+        }
+      }, 400);
+    });
+
+    input.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
-        addCriteriaChip(kind, inputs[kind].value);
-        inputs[kind].value = "";
+        const top = suggestions[0];
+        const value = top && normalizeTitle(top.label) === normalizeTitle(input.value) ? top.label : input.value;
+        pick(value);
+      } else if (e.key === "Escape") {
+        close();
       }
     });
-    inputs[kind].addEventListener("blur", () => {
-      if (inputs[kind].value.trim()) {
-        addCriteriaChip(kind, inputs[kind].value);
-        inputs[kind].value = "";
-      }
+
+    dropdown.addEventListener("mousedown", (e) => {
+      const item = e.target.closest(".dropdown-item");
+      if (!item) return;
+      e.preventDefault();
+      pick(suggestions[Number(item.dataset.index)]?.label ?? input.value);
+    });
+
+    input.addEventListener("blur", () => {
+      setTimeout(() => {
+        if (input.value.trim()) {
+          addCriteriaChip(kind, input.value);
+          input.value = "";
+        }
+        suggestions = [];
+        close();
+      }, 150);
     });
   }
 
@@ -359,7 +404,7 @@ function setupCriteria() {
     }
   });
 
-  document.getElementById("criteria-btn").addEventListener("click", runCriteria);
+  document.getElementById("reco-btn").addEventListener("click", runRecommendations);
 }
 
 function addCriteriaChip(kind, label) {
@@ -370,12 +415,12 @@ function addCriteriaChip(kind, label) {
   const total = state.criteria.film.length + state.criteria.director.length +
     state.criteria.actor.length + state.criteria.keyword.length + state.criteria.genre.size;
   if (total >= MAX_SEEDS) {
-    setStatus("criteria-status", `${MAX_SEEDS} critères maximum (pour éviter la limitation de débit de Wikidata).`, "error");
+    setStatus("reco-status", `${MAX_SEEDS} critères maximum (pour éviter la limitation de débit de Wikidata).`, "error");
     return;
   }
   state.criteria[kind].push(value);
   renderCriteriaChips(kind);
-  setStatus("criteria-status", "");
+  setStatus("reco-status", "");
 }
 
 function renderCriteriaChips(kind) {
@@ -435,61 +480,97 @@ async function resolveCriteria(status) {
   return { resolved, missing, totalSteps };
 }
 
-function criteriaCard(item) {
-  const poster = item.image
-    ? `<img src="${escapeAttr(item.image)}" alt="Affiche de ${escapeAttr(item.title)}" loading="lazy" />`
+function recoCard(item) {
+  const image = item.image || item.poster;
+  const poster = image
+    ? `<img src="${escapeAttr(image)}" alt="Affiche de ${escapeAttr(item.title)}" loading="lazy" />`
     : '<img src="data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'342\' height=\'513\'%3E%3Crect fill=\'%23242a31\' width=\'342\' height=\'513\'/%3E%3C/svg%3E" alt="" />';
+  const match = item.score ? `· match ${item.score.toFixed(1)}` : item.vote ? `· TMDB ${item.vote.toFixed(1)}` : "";
+  const why = item.why?.length ? `via ${item.why.join(", ")}` : item.sourceName ? `car vous avez aimé « ${item.sourceName} »` : "";
   return `
     <div class="reco-card">
       ${poster}
       <div class="reco-info">
         <div class="reco-title">${escapeHtml(item.title)}</div>
-        <div class="reco-meta">${escapeHtml(item.year || "")} · match ${item.score.toFixed(1)}</div>
-        <div class="reco-source">via ${escapeHtml(item.why.join(", "))}</div>
+        <div class="reco-meta">${escapeHtml(item.year || "")} ${match}</div>
+        <div class="reco-source">${escapeHtml(why)}</div>
       </div>
     </div>`;
 }
 
-async function runCriteria() {
-  const btn = document.getElementById("criteria-btn");
-  const grid = document.getElementById("criteria-grid");
+async function runRecommendations() {
+  const btn = document.getElementById("reco-btn");
+  const grid = document.getElementById("reco-grid");
   const hasCriteria = state.criteria.film.length || state.criteria.director.length ||
     state.criteria.actor.length || state.criteria.keyword.length || state.criteria.genre.size;
-  if (!hasCriteria) {
-    setStatus("criteria-status", "Ajoutez au moins un film, réalisateur, acteur, genre ou mot-clé.", "error");
+  if (!hasCriteria && !getApiKey()) {
+    setStatus("reco-status", "Ajoutez au moins un critère ci-dessus, ou saisissez votre clé TMDB dans la barre en haut de page.", "error");
     return;
   }
 
   btn.disabled = true;
   grid.innerHTML = "";
   try {
-    const status = (msg) => setStatus("criteria-status", msg);
-    const { resolved, missing, totalSteps } = await resolveCriteria(status);
-    const foundCount = resolved.filmIds.length + resolved.personIds.length + resolved.genreIds.length + resolved.themeIds.length;
-    if (!foundCount) {
-      setStatus("criteria-status", "Aucun critère n'a été reconnu sur Wikidata. Vérifiez l'orthographe.", "error");
-      return;
+    const seen = seenSet();
+    const status = (msg, type = "") => setStatus("reco-status", msg, type);
+    const results = [];
+    let missing = [];
+
+    if (hasCriteria) {
+      const { resolved, missing: unresolved, totalSteps } = await resolveCriteria(status);
+      missing = unresolved;
+      const foundCount = resolved.filmIds.length + resolved.personIds.length + resolved.genreIds.length + resolved.themeIds.length;
+      if (!foundCount && !getApiKey()) {
+        status("Aucun critère n'a été reconnu sur Wikidata. Vérifiez l'orthographe.");
+        return;
+      }
+      if (foundCount) {
+        status(`Recherche Wikidata pour vos ${foundCount} critère(s)…`);
+        const items = await searchFilms({
+          ...resolved,
+          seedWeights: Object.fromEntries(resolved.filmIds.map((f) => [f.id, f.weight ?? 2.5])),
+          onProgress: status,
+        });
+        for (const item of items) {
+          if (seen.has(`${normalizeTitle(item.title)}|${item.year || ""}`)) continue;
+          results.push(item);
+        }
+      }
     }
 
-    status(`Recherche des films correspondant à vos ${foundCount} critères…`);
-    const items = await searchFilms({
-      ...resolved,
-      seedWeights: Object.fromEntries(resolved.filmIds.map((f) => [f.id, f.weight ?? 2.5])),
-      onProgress: status,
-    });
+    if (getApiKey()) {
+      status(results.length ? "Enrichissement via TMDB…" : "Analyse de vos meilleurs films via TMDB…");
+      try {
+        const { items } = await buildRecommendations(state.entries, { onProgress: status });
+        for (const item of items) {
+          if (seen.has(`${normalizeTitle(item.title)}|${item.year || ""}`)) continue;
+          const dupe = results.find(
+            (r) => normalizeTitle(r.title) === normalizeTitle(item.title) && (!r.year || !item.year || r.year === item.year)
+          );
+          if (dupe) {
+            dupe.poster ||= item.poster;
+            dupe.vote = item.vote;
+            continue;
+          }
+          results.push({
+            ...item,
+            score: 1 + (item.vote ?? 0) / 10,
+            why: [`TMDB — proche de « ${item.sourceName} »`],
+          });
+        }
+      } catch (error) {
+        if (!results.length) throw error;
+      }
+    }
 
-    const seen = seenSet();
-    const fresh = items.filter((item) => !seen.has(`${normalizeTitle(item.title)}|${item.year || ""}`)).slice(0, 24);
-    grid.innerHTML = fresh.map(criteriaCard).join("");
+    results.sort((a, b) => b.score - a.score);
+    const fresh = results.slice(0, 30);
+    grid.innerHTML = fresh.map(recoCard).join("");
 
     const missingText = missing.length ? ` Critères non reconnus : ${missing.join(", ")}.` : "";
-    setStatus(
-      "criteria-status",
-      `${fresh.length} recommandations à partir de ${foundCount} critère(s) sur ${totalSteps}.${missingText}`,
-      "success"
-    );
+    status(`${fresh.length} recommandations combinées.${missingText}`, "success");
   } catch (error) {
-    setStatus("criteria-status", error.message, "error");
+    setStatus("reco-status", error.message, "error");
   } finally {
     btn.disabled = false;
   }
@@ -506,28 +587,7 @@ function setupRecos() {
     }
     saveApiKey(keyInput.value);
     setStatus("tmdb-key-status", "Clé enregistrée !", "success");
-    if (state.entries.length) {
-      document.getElementById("reco-controls").classList.remove("hidden");
-      document.getElementById("reco-btn").classList.remove("hidden");
-      renderGenrePanelPlaceholder();
-    }
-  });
-
-  document.getElementById("reco-btn").addEventListener("click", async () => {
-    const btn = document.getElementById("reco-btn");
-    btn.disabled = true;
-    try {
-      setStatus("reco-status", "Analyse de vos meilleurs films…");
-      const { items } = await buildRecommendations(state.entries, {
-        onProgress: (msg) => setStatus("reco-status", msg),
-      });
-      document.getElementById("reco-grid").innerHTML = items.map(recoCard).join("");
-      setStatus("reco-status", `Top ${items.length} recommandations générées, classées par pertinence.`, "success");
-    } catch (error) {
-      setStatus("reco-status", error.message, "error");
-    } finally {
-      btn.disabled = false;
-    }
+    if (state.entries.length) renderGenrePanelPlaceholder();
   });
 }
 

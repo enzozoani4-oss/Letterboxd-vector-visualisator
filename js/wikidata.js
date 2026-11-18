@@ -52,7 +52,7 @@ function entitySearchBlock(term, variable = "?e") {
     SERVICE wikibase:mwapi {
       bd:serviceParam wikibase:endpoint "www.wikidata.org";
                       wikibase:api "EntitySearch";
-                      wikibase:limit "5";
+                      wikibase:limit "10";
                       mwapi:search ${str(term)};
                       mwapi:language "fr".
       ${variable} wikibase:apiOutputItem mwapi:item.
@@ -64,36 +64,44 @@ const ENTITY_FIELDS = `
   OPTIONAL { ?e rdfs:label ?len FILTER(LANG(?len) = "en") }
   BIND(COALESCE(?lfr, ?len, "") AS ?label)`;
 
-export function findEntity(term, kind) {
-  let constraints = "";
+function entityConstraints(kind) {
   if (kind === "person") {
-    constraints = `?e wdt:P31 wd:Q5 .
+    return `?e wdt:P31 wd:Q5 .
     ?e wikibase:sitelinks ?sl .
     FILTER(EXISTS { ?fd wdt:P57 ?e } || EXISTS { ?fa wdt:P161 ?e })`;
-  } else if (kind === "genre") {
-    constraints = `FILTER EXISTS { ?fg wdt:P136 ?e }
-    ?e wikibase:sitelinks ?sl .`;
-  } else if (kind === "theme") {
-    constraints = `FILTER EXISTS { ?ft wdt:P921 ?e }
-    ?e wikibase:sitelinks ?sl .`;
-  } else if (kind === "film") {
-    constraints = `?e wdt:P31 wd:Q11424 .
+  }
+  if (kind === "genre") {
+    return `FILTER EXISTS { ?fg wdt:P136 ?e }
     ?e wikibase:sitelinks ?sl .`;
   }
+  if (kind === "theme") {
+    return `FILTER EXISTS { ?ft wdt:P921 ?e }
+    ?e wikibase:sitelinks ?sl .`;
+  }
+  return `?e wdt:P31 wd:Q11424 .
+    ?e wikibase:sitelinks ?sl .`;
+}
 
+export function suggestEntities(term, kind, limit = 8) {
   const query = `
     SELECT ?e ?label (MAX(?sl) AS ?sitelinks) WHERE {
       ${entitySearchBlock(term)}
-      ${constraints}
+      ${entityConstraints(kind)}
       ${ENTITY_FIELDS}
     } GROUP BY ?e ?label
     ORDER BY DESC(?sitelinks) ?e
-    LIMIT 1`;
+    LIMIT ${limit}`;
 
-  return cached(`entity:${kind}:${term.toLowerCase()}`, async () => {
+  return cached(`suggest:${kind}:${term.toLowerCase()}`, async () => {
     const rows = await runQuery(query);
-    if (!rows.length) return null;
-    return { id: rows[0].e, label: rows[0].label || term, kind, query: term };
+    return rows.map((row) => ({ id: row.e, label: row.label || term, kind, query: term }));
+  });
+}
+
+export function findEntity(term, kind) {
+  return cached(`entity:${kind}:${term.toLowerCase()}`, async () => {
+    const candidates = await suggestEntities(term, kind, 1);
+    return candidates[0] ?? null;
   });
 }
 
