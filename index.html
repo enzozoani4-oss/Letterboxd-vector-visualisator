@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Letterboxd Vector Visualisator</title>
+  <meta name="description" content="Importez vos données Letterboxd et obtenez des recommandations de films personnalisées." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎬</text></svg>" />
+  <link rel="stylesheet" href="css/style.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" defer></script>
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <header class="site-header">
+    <h1>🎬 Letterboxd <span>Vector Visualisator</span></h1>
+    <p class="tagline">Importez votre export Letterboxd — visualisez vos notes, découvrez votre profil de goûts et vos films recommandés.</p>
+  </header>
+
+  <main>
+    <!-- ============ IMPORT ============ -->
+    <section id="import-section">
+      <div id="drop-zone" tabindex="0" role="button" aria-label="Déposer le fichier export ZIP de Letterboxd">
+        <p class="drop-main">📁 Déposez ici votre export Letterboxd (.zip)</p>
+        <p class="drop-sub">ou cliquez pour parcourir — obtenu sur letterboxd.com → Paramètres → Données → Exporter</p>
+        <input type="file" id="file-input" accept=".zip,application/zip" hidden />
+      </div>
+      <div class="import-actions">
+        <button id="demo-btn" class="btn secondary">Voir avec des données de démo</button>
+        <button id="reset-btn" class="btn ghost hidden">Réinitialiser</button>
+      </div>
+      <p id="import-status" class="status" role="status"></p>
+    </section>
+
+    <!-- ============ STATS ============ -->
+    <section id="stats-section" class="hidden">
+      <h2>📊 Votre profil</h2>
+      <div id="stat-cards" class="cards"></div>
+
+      <div class="panels">
+        <div class="panel">
+          <h3>Distribution des notes</h3>
+          <div id="rating-dist"></div>
+        </div>
+        <div class="panel">
+          <h3>Films notés par année de visionnage</h3>
+          <div id="year-dist"></div>
+        </div>
+      </div>
+
+      <div class="panel" id="genre-panel">
+        <h3>Vos genres favoris <span class="hint">(enrichi via TMDB — visible une fois la clé API configurée)</span></h3>
+        <div id="genre-dist"></div>
+      </div>
+    </section>
+
+    <!-- ============ BIBLIOTHÈQUE ============ -->
+    <section id="library-section" class="hidden">
+      <h2>🎞️ Votre bibliothèque</h2>
+      <input type="search" id="library-search" placeholder="Rechercher un film…" aria-label="Rechercher un film" />
+      <div class="table-wrap">
+        <table id="library-table">
+          <thead>
+            <tr>
+              <th data-sort="name" class="sortable">Film</th>
+              <th data-sort="year" class="sortable">Année</th>
+              <th data-sort="rating" class="sortable">Ma note</th>
+              <th data-sort="date" class="sortable">Noté le</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p id="library-count" class="status"></p>
+    </section>
+
+    <!-- ============ RECOMMANDATIONS ============ -->
+    <section id="reco-section" class="hidden">
+      <h2>✨ Films recommandés pour vous</h2>
+      <div id="tmdb-key-box" class="panel">
+        <p><strong>Pour générer des recommandations,</strong> ce site interroge l'API TMDB (thé Movie Database), gratuite.</p>
+        <p>1. Créez un compte sur <a href="https://www.themoviedb.org/signup" target="_blank" rel="noopener">themoviedb.org</a><br />
+           2. Obtenez une clé API dans <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">Paramètres → API</a><br />
+           3. Collez-la ci-dessous (elle est stockée uniquement dans votre navigateur) :</p>
+        <div class="key-row">
+          <input type="text" id="tmdb-key" placeholder="Clé API TMDB" autocomplete="off" spellcheck="false" />
+          <button id="tmdb-key-save" class="btn">Enregistrer</button>
+        </div>
+        <p id="tmdb-key-status" class="status"></p>
+      </div>
+
+      <div id="reco-controls" class="hidden">
+        <button id="reco-btn" class="btn primary">Générer mes recommandations</button>
+        <p id="reco-status" class="status" role="status"></p>
+      </div>
+
+      <div id="reco-grid" class="reco-grid"></div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      Données importées : 100 % chez vous, aucun envoi vers un serveur.<br />
+      Recommandations : <a href="https://www.themoviedb.org/" target="_blank" rel="noopener">TMDB</a> ·
+      Export : <a href="https://letterboxd.com/" target="_blank" rel="noopener">Letterboxd</a>
+    </p>
+  </footer>
+</body>
+</html>
