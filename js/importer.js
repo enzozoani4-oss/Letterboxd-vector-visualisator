@@ -66,11 +66,27 @@ export async function importExportZip(file) {
 }
 
 function dedupeEntries(entries) {
-  const byUri = new Map();
+  const byKey = new Map();
+  const uriToKey = new Map();
+  const nameToKey = new Map();
+  const normalize = (value) => String(value).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
   entries.forEach((entry, order) => {
-    const key = entry.uri || `${entry.name}|${entry.year}`;
-    const current = byUri.get(key);
-    if (!current) { byUri.set(key, { ...entry, order }); return; }
+    const nameKey = `name:${normalize(entry.name)}|${entry.year}`;
+    const key = (entry.uri && uriToKey.get(entry.uri))
+      || nameToKey.get(nameKey)
+      || (entry.uri ? `uri:${entry.uri}` : nameKey);
+
+    const current = byKey.get(key);
+    if (!current) {
+      byKey.set(key, { ...entry, order });
+      nameToKey.set(nameKey, key);
+      if (entry.uri) uriToKey.set(entry.uri, key);
+      return;
+    }
+
+    nameToKey.set(nameKey, key);
+    if (entry.uri) uriToKey.set(entry.uri, key);
     if (compareEntries(entry, current, order) > 0) {
       if (entry.rating !== null) current.rating = entry.rating;
       current.date = entry.date || current.date;
@@ -80,7 +96,8 @@ function dedupeEntries(entries) {
       current.order = order;
     }
   });
-  return [...byUri.values()];
+
+  return [...byKey.values()];
 }
 
 function compareEntries(next, current, order) {
