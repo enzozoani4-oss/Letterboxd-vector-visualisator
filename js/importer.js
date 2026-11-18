@@ -67,17 +67,30 @@ export async function importExportZip(file) {
 
 function dedupeEntries(entries) {
   const byUri = new Map();
-  for (const entry of entries) {
+  entries.forEach((entry, order) => {
     const key = entry.uri || `${entry.name}|${entry.year}`;
     const current = byUri.get(key);
-    if (!current) { byUri.set(key, entry); continue; }
-    if (entry.rating !== null) {
-      current.rating = current.rating === null ? entry.rating : Math.max(current.rating, entry.rating);
+    if (!current) { byUri.set(key, { ...entry, order }); return; }
+    if (compareEntries(entry, current, order) > 0) {
+      if (entry.rating !== null) current.rating = entry.rating;
+      current.date = entry.date || current.date;
+      current.year = entry.year || current.year;
+      current.uri = entry.uri || current.uri;
+      current.source = entry.source;
+      current.order = order;
     }
-    if (!current.date && entry.date) current.date = entry.date;
-    if (!current.year && entry.year) current.year = entry.year;
-  }
+  });
   return [...byUri.values()];
+}
+
+function compareEntries(next, current, order) {
+  const nextDate = next.date || "";
+  const currentDate = current.date || "";
+  if (nextDate !== currentDate) return nextDate > currentDate ? 1 : -1;
+  const nextRated = next.rating !== null ? 1 : 0;
+  const currentRated = current.rating !== null ? 1 : 0;
+  if (nextRated !== currentRated) return nextRated - currentRated;
+  return order - current.order;
 }
 
 export function normalizeRating(raw) {
