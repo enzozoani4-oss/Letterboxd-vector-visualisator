@@ -2,6 +2,7 @@ import { importExportZip } from "./importer.js";
 import { demoEntries } from "./demo-data.js";
 import { buildRecommendations, getApiKey, saveApiKey, findMovieId, getMovieDetails, runWithConcurrency } from "./tmdb.js";
 import { GENRE_SUGGESTIONS, findEntity, searchFilms, suggestEntities } from "./wikidata.js";
+import { findTasteTwins, loadTwinsData, recommendationsFromTwins, slugifyName } from "./twins.js";
 
 const MAX_SEEDS = 12;
 
@@ -89,6 +90,7 @@ function loadEntries(entries, isDemo, extras = {}) {
   state.likeCount = extras.likeCount ?? 0;
   document.getElementById("stats-section").classList.remove("hidden");
   document.getElementById("library-section").classList.remove("hidden");
+  document.getElementById("twins-section").classList.remove("hidden");
   document.getElementById("reco-section").classList.remove("hidden");
   document.getElementById("reset-btn").classList.remove("hidden");
   document.getElementById("drop-zone").classList.add("hidden");
@@ -621,6 +623,85 @@ function setupRecos() {
   });
 }
 
+/* ================= JUMEAUX DE GOÛT ================= */
+
+function entrySlug(entry) {
+  const match = String(entry.uri || "").match(/\/film\/([^/]+)\/?/);
+  return match ? match[1] : slugifyName(entry.name);
+}
+
+function setupTwins() {
+  document.getElementById("twins-btn").addEventListener("click", runTwins);
+}
+
+async function runTwins() {
+  const btn = document.getElementById("twins-btn");
+  const progress = document.getElementById("twins-progress");
+  const bar = document.getElementById("twins-progress-bar");
+  btn.disabled = true;
+  progress.classList.remove("hidden");
+  try {
+    const index = await loadTwinsData({
+      onProgress: (msg, ratio = 0) => {
+        setStatus("twins-status", msg);
+        bar.style.width = `${Math.round(ratio * 100)}%`;
+      },
+    });
+    bar.style.width = "100%";
+
+    const rated = state.entries.filter((e) => e.rating !== null);
+    setStatus("twins-status", "Comparaison de vos notes avec 6 519 profils…");
+    const { twins, matched, missing } = findTasteTwins(index, rated);
+
+    if (!twins.length) {
+      setStatus(
+        "twins-status",
+        `Vos ${matched} films couverts par la base n'ont pas permis de trouver de jumeau (il faut plusieurs films avec des notes identiques). Réessayez après un nouvel import de plus gros historique.`,
+        "error"
+      );
+      return;
+    }
+
+    setStatus("twins-status", `Parcours des notes de vos ${twins.length} jumeaux…`);
+    const seenSlugs = new Set(state.entries.map(entrySlug));
+    const recos = recommendationsFromTwins(index, twins, seenSlugs, { topN: 24 });
+
+    document.getElementById("twins-result").innerHTML = twins
+      .map(
+        (twin, i) => `
+        <div class="card">
+          <div class="value">${Math.round(twin.match * 100)} %</div>
+          <div class="label">Profil #${String(twin.user).padStart(4, "0")}</div>
+          <div class="twin-detail">${twin.exact}/${twin.co} notes identiques · écart moyen ${twin.avgDiff.toFixed(2)} ★</div>
+        </div>`
+      )
+      .join("");
+
+    document.getElementById("twins-grid").innerHTML = recos
+      .map(
+        (reco) => `
+      <div class="reco-card">
+        <div class="reco-info">
+          <div class="reco-title"><a href="https://letterboxd.com/film/${escapeAttr(reco.slug)}/" target="_blank" rel="noopener">${escapeHtml(prettyTitle(reco.slug))}</a></div>
+          <div class="reco-meta">${stars(reco.score)} ${reco.score.toFixed(1)}/5 · ${reco.support} jumeau(x)</div>
+          ${reco.best >= 5 ? '<div class="reco-source">un 5★ dans le groupe</div>' : ""}
+        </div>
+      </div>`
+      )
+      .join("");
+
+    setStatus(
+      "twins-status",
+      `${twins.length} jumeaux de goût trouvés (via ${matched} films communs ; ${missing} de vos films absents de la base). ${recos.length} recommandations issues de leurs coups de cœur.`,
+      "success"
+    );
+  } catch (error) {
+    setStatus("twins-status", error.message, "error");
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 /* ================= UTILS ================= */
 
 function escapeHtml(value) {
@@ -640,3 +721,4 @@ setupLibrary();
 setupRecos();
 setupCriteria();
 setupChipRemoval();
+setupTwins();

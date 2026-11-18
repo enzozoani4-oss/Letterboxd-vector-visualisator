@@ -89,6 +89,20 @@
       <p id="library-count" class="status"></p>
     </section>
 
+    <!-- ============ JUMEAUX DE GOÛT ============ -->
+    <section id="twins-section" class="hidden">
+      <h2>👯 Vos jumeaux de goût</h2>
+      <div class="panel">
+        <p>Cette fonction compare vos notes à une base de <strong>10,4 millions de notes publiques</strong> émises par les 6 519 membres les plus actifs de Letterboxd (déc. 2025), pour dénicher les profils qui ont vu les <strong>mêmes films avec exactement les mêmes notes</strong> que vous — puis vous recommande ce qu'ils ont eux-mêmes notés le plus haut.</p>
+        <p class="hint">Une base de données anonymisée d'environ 18 Mo est téléchargée par activation (aucune clé requise). Les films trop obscurs ou trop récents sont ignorés. Les profils étant anonymisés, chaque jumeau est affiché comme « Profil #N ».</p>
+        <button id="twins-btn" class="btn secondary">Trouver mes jumeaux de goût</button>
+        <div id="twins-progress" class="progress hidden"><div id="twins-progress-bar"></div></div>
+        <p id="twins-status" class="status" role="status"></p>
+      </div>
+      <div id="twins-result" class="cards"></div>
+      <div id="twins-grid" class="reco-grid"></div>
+    </section>
+
     <!-- ============ RECOMMANDATIONS ============ -->
     <section id="reco-section" class="hidden">
       <h2>✨ Films recommandés pour vous</h2>
@@ -150,6 +164,7 @@
     <p>
       Données importées : 100 % chez vous, aucun envoi vers un serveur.<br />
       Recommandations : <a href="https://www.wikidata.org/" target="_blank" rel="noopener">Wikidata</a> (sans clé API) ou <a href="https://www.themoviedb.org/" target="_blank" rel="noopener">TMDB</a> ·
+      Jumeaux de goût : <a href="https://huggingface.co/datasets/titouann/letterboxd-10m-movies-ratings-2025" target="_blank" rel="noopener">Letterboxd Movie Ratings 10M (2025)</a> (CC BY-NC-SA 4.0) ·
       Export : <a href="https://letterboxd.com/" target="_blank" rel="noopener">Letterboxd</a>
     </p>
   </footer>
