@@ -9,7 +9,7 @@ const state = {
   entries: [],
   librarySort: { key: "rating", dir: "desc" },
   libraryFilter: "",
-  criteria: { film: [], director: [], actor: [], keyword: [], genre: new Set() },
+  criteria: { film: [], director: [], actor: [], keyword: [], genre: [] },
 };
 
 const formatNumber = (n) => new Intl.NumberFormat("fr-FR").format(n);
@@ -298,70 +298,117 @@ function libraryFilms() {
     .sort((a, b) => (b.rating ?? -1) - (a.rating ?? -1));
 }
 
+const FAMOUS_DIRECTORS = [
+  "Christopher Nolan", "Steven Spielberg", "Denis Villeneuve", "Quentin Tarantino", "Martin Scorsese",
+  "James Cameron", "Ridley Scott", "Stanley Kubrick", "David Fincher", "Wes Anderson",
+  "Joel et Ethan Coen", "Bong Joon-ho", "Guillermo del Toro", "Peter Jackson", "Hayao Miyazaki",
+  "Makoto Shinkai", "Mamoru Hosoda", "Satoshi Kon", "Alfonso Cuarón", "Alejandro González Iñárritu",
+  "Damien Chazelle", "Greta Gerwig", "Jordan Peele", "Ari Aster", "Robert Eggers",
+  "David Lynch", "Darren Aronofsky", "Clint Eastwood", "Tim Burton", "Francis Ford Coppola",
+  "George Miller", "Luc Besson", "Jean-Pierre Jeunet", "Jacques Audiard", "François Truffaut",
+  "Jean-Luc Godard", "Jean-Pierre Melville", "Andrei Tarkovski", "Akira Kurosawa", "Wong Kar-wai",
+  "Lars von Trier", "Thomas Vinterberg", "Fritz Lang", "Alfred Hitchcock", "Sergio Leone",
+  "Emir Kusturica", "Taika Waititi", "Paul Thomas Anderson", "Spike Jonze", "Edgar Wright",
+];
+
+const FAMOUS_ACTORS = [
+  "Leonardo DiCaprio", "Brad Pitt", "Tom Hanks", "Morgan Freeman", "Denzel Washington",
+  "Christian Bale", "Heath Ledger", "Matt Damon", "Ryan Gosling", "Emma Stone",
+  "Scarlett Johansson", "Anne Hathaway", "Natalie Portman", "Keira Knightley", "Margot Robbie",
+  "Cate Blanchett", "Meryl Streep", "Anthony Hopkins", "Jack Nicholson", "Robert De Niro",
+  "Al Pacino", "Joe Pesci", "Tom Cruise", "Keanu Reeves", "Will Smith",
+  "Johnny Depp", "Hugh Jackman", "Jake Gyllenhaal", "Oscar Isaac", "Adam Sandler",
+  "Jim Carrey", "Samuel L. Jackson", "Cillian Murphy", "Timothée Chalamet", "Daniel Craig",
+  "Ralph Fiennes", "Gary Oldman", "Tom Hardy", "Edward Norton", "Joaquin Phoenix",
+  "Willem Dafoe", "Song Kang-ho", "Ken Watanabe", "Toshiro Mifune", "Sigourney Weaver",
+  "Harrison Ford", "Arnold Schwarzenegger", "Sylvester Stallone", "Bruce Willis", "Uma Thurman",
+  "Kate Winslet", "Jennifer Lawrence", "Zendaya", "Charlize Theron", "Jean Dujardin",
+  "Omar Sy", "Marion Cotillard", "Léa Seydoux", "Vincent Cassel", "Audrey Tautou",
+];
+
+const CRITERIA_SOURCES = {
+  film: {
+    local: () =>
+      libraryFilms().map((entry) => ({ label: entry.name, detail: `${entry.year || ""} ${stars(entry.rating)}` })),
+  },
+  director: { local: () => FAMOUS_DIRECTORS.map((name) => ({ label: name })), remote: "person" },
+  actor: { local: () => FAMOUS_ACTORS.map((name) => ({ label: name })), remote: "person" },
+  genre: { local: () => GENRE_SUGGESTIONS.map((name) => ({ label: name })), remote: "genre" },
+  keyword: { local: () => [], remote: "theme" },
+};
+
 function setupCriteria() {
-  for (const kind of ["film", "director", "actor", "keyword"]) {
+  for (const [kind, config] of Object.entries(CRITERIA_SOURCES)) {
     const input = document.getElementById(`criteria-${kind}`);
     const dropdown = document.getElementById(`dropdown-${kind}`);
-    let suggestions = [];
+    let remoteSuggestions = [];
+    let comboItems = [];
     let timer;
 
     const close = () => dropdown.classList.add("hidden");
-    const open = () => dropdown.classList.remove("hidden");
+    const open = () => {
+      dropdown.classList.remove("hidden");
+      dropdown.scrollTop = 0;
+    };
 
-    const renderSuggestions = () => {
-      if (!suggestions.length) {
+    const pick = (value) => {
+      if (!value) return;
+      addCriteriaChip(kind, value);
+      input.value = "";
+      remoteSuggestions = [];
+      close();
+    };
+
+    const refresh = () => {
+      const query = input.value.trim();
+      const pool = query
+        ? config.local().filter((option) => normalizeTitle(option.label).includes(normalizeTitle(query)))
+        : config.local().slice(0, 40);
+      const options = pool.map((option) => ({ ...option, isRemote: false }));
+      if (config.remote && query.length >= 3) {
+        const seen = new Set(options.map((option) => normalizeTitle(option.label)));
+        for (const entity of remoteSuggestions) {
+          if (!seen.has(normalizeTitle(entity.label))) options.push({ label: entity.label, isRemote: true });
+        }
+      }
+      comboItems = options;
+      if (!options.length) {
         close();
         return;
       }
-      dropdown.innerHTML = suggestions
+      dropdown.innerHTML = options
         .map(
-          (s, i) =>
-            `<button type="button" class="dropdown-item" data-index="${i}"><span>${escapeHtml(s.label)}</span>${s.detail ? `<span class="dropdown-detail">${s.detail}</span>` : ""}</button>`
+          (option, index) =>
+            `<button type="button" class="dropdown-item${option.isRemote ? " dropdown-remote" : ""}" data-index="${index}"><span>${escapeHtml(option.label)}</span>${option.detail ? `<span class="dropdown-detail">${option.detail}</span>` : ""}</button>`
         )
         .join("");
       open();
     };
 
-    const pick = (value) => {
-      addCriteriaChip(kind, value);
-      input.value = "";
-      suggestions = [];
-      close();
-    };
+    input.addEventListener("focus", refresh);
 
     input.addEventListener("input", () => {
       clearTimeout(timer);
       const query = input.value.trim();
-      if (!query) {
-        suggestions = [];
-        close();
-        return;
+      if (!query) remoteSuggestions = [];
+      if (config.remote && query.length >= 3) {
+        timer = setTimeout(async () => {
+          try {
+            remoteSuggestions = await suggestEntities(query, config.remote, 6);
+            refresh();
+          } catch {
+            close();
+          }
+        }, 400);
       }
-      if (kind === "film") {
-        const q = normalizeTitle(query);
-        suggestions = libraryFilms()
-          .filter((e) => normalizeTitle(e.name).includes(q))
-          .slice(0, 8)
-          .map((e) => ({ label: e.name, detail: `${e.year || ""} ${stars(e.rating)}` }));
-        renderSuggestions();
-        return;
-      }
-      timer = setTimeout(async () => {
-        try {
-          const entities = await suggestEntities(query, kind === "keyword" ? "theme" : "person");
-          suggestions = entities.map((entity) => ({ label: entity.label, detail: "" }));
-          renderSuggestions();
-        } catch {
-          close();
-        }
-      }, 400);
+      refresh();
     });
 
     input.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
-        const top = suggestions[0];
-        const value = top && normalizeTitle(top.label) === normalizeTitle(input.value) ? top.label : input.value;
+        const top = comboItems[0];
+        const value = top && normalizeTitle(top.label) === normalizeTitle(input.value) ? top.label : input.value.trim();
         pick(value);
       } else if (e.key === "Escape") {
         close();
@@ -372,37 +419,20 @@ function setupCriteria() {
       const item = e.target.closest(".dropdown-item");
       if (!item) return;
       e.preventDefault();
-      pick(suggestions[Number(item.dataset.index)]?.label ?? input.value);
+      pick(comboItems[Number(item.dataset.index)]?.label ?? "");
     });
 
     input.addEventListener("blur", () => {
       setTimeout(() => {
         if (input.value.trim()) {
-          addCriteriaChip(kind, input.value);
+          addCriteriaChip(kind, input.value.trim());
           input.value = "";
         }
-        suggestions = [];
+        remoteSuggestions = [];
         close();
       }, 150);
     });
   }
-
-  const genreList = document.getElementById("criteria-genre-list");
-  genreList.innerHTML = GENRE_SUGGESTIONS.map(
-    (genre) => `<button type="button" class="genre-pill" data-genre="${escapeAttr(genre)}">${escapeHtml(genre)}</button>`
-  ).join("");
-  genreList.addEventListener("click", (e) => {
-    const pill = e.target.closest(".genre-pill");
-    if (!pill) return;
-    const genre = pill.dataset.genre;
-    if (state.criteria.genre.has(genre)) {
-      state.criteria.genre.delete(genre);
-      pill.classList.remove("active");
-    } else {
-      state.criteria.genre.add(genre);
-      pill.classList.add("active");
-    }
-  });
 
   document.getElementById("reco-btn").addEventListener("click", runRecommendations);
 }
@@ -413,7 +443,7 @@ function addCriteriaChip(kind, label) {
   const list = state.criteria[kind];
   if (list.some((chip) => normalizeTitle(chip) === normalizeTitle(value))) return;
   const total = state.criteria.film.length + state.criteria.director.length +
-    state.criteria.actor.length + state.criteria.keyword.length + state.criteria.genre.size;
+    state.criteria.actor.length + state.criteria.keyword.length + state.criteria.genre.length;
   if (total >= MAX_SEEDS) {
     setStatus("reco-status", `${MAX_SEEDS} critères maximum (pour éviter la limitation de débit de Wikidata).`, "error");
     return;
@@ -502,7 +532,7 @@ async function runRecommendations() {
   const btn = document.getElementById("reco-btn");
   const grid = document.getElementById("reco-grid");
   const hasCriteria = state.criteria.film.length || state.criteria.director.length ||
-    state.criteria.actor.length || state.criteria.keyword.length || state.criteria.genre.size;
+    state.criteria.actor.length || state.criteria.keyword.length || state.criteria.genre.length;
   if (!hasCriteria && !getApiKey()) {
     setStatus("reco-status", "Ajoutez au moins un critère ci-dessus, ou saisissez votre clé TMDB dans la barre en haut de page.", "error");
     return;

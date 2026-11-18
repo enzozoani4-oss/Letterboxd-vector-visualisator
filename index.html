@@ -130,8 +130,12 @@
             <div id="chips-keyword" class="chips"></div>
           </div>
           <div class="criteria-group">
-            <label>Genres</label>
-            <div id="criteria-genre-list" class="genre-pills"></div>
+            <label for="criteria-genre">Genres</label>
+            <div class="combo">
+              <input type="text" id="criteria-genre" placeholder="Ex. : science-fiction, horreur…" autocomplete="off" />
+              <div id="dropdown-genre" class="dropdown hidden"></div>
+            </div>
+            <div id="chips-genre" class="chips"></div>
           </div>
         </div>
         <button id="reco-btn" class="btn primary">Générer mes recommandations</button>
