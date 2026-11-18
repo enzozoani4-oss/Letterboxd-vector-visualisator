@@ -72,15 +72,17 @@ async function handleFile(file) {
   }
   setStatus("import-status", "Lecture de l'archive en cours…");
   try {
-    const entries = await importExportZip(file);
-    loadEntries(entries, false);
+    const result = await importExportZip(file);
+    loadEntries(result.entries, false, { watchlistCount: result.watchlistCount, likeCount: result.likeCount, filesFound: result.filesFound });
   } catch (error) {
     setStatus("import-status", `Échec de l'import : ${error.message}`, "error");
   }
 }
 
-function loadEntries(entries, isDemo) {
+function loadEntries(entries, isDemo, extras = {}) {
   state.entries = entries;
+  state.watchlistCount = extras.watchlistCount ?? 0;
+  state.likeCount = extras.likeCount ?? 0;
   document.getElementById("stats-section").classList.remove("hidden");
   document.getElementById("library-section").classList.remove("hidden");
   document.getElementById("reco-section").classList.remove("hidden");
@@ -92,7 +94,12 @@ function loadEntries(entries, isDemo) {
     document.getElementById("reco-controls").classList.add("hidden");
     setStatus("import-status", "Données de démonstration chargées — déposez votre export pour vos vraies données.");
   } else {
-    setStatus("import-status", `Import réussi : ${formatNumber(entries.length)} films chargés.`, "success");
+    const filesText = (extras.filesFound ?? []).join(", ");
+    setStatus(
+      "import-status",
+      `Import réussi : ${formatNumber(entries.length)} films chargés (CSV lus : ${filesText}).`,
+      "success"
+    );
   }
 
   if (getApiKey()) {
@@ -123,6 +130,8 @@ function renderStats() {
     { value: formatNumber(fiveStar), label: "coups de cœur (5★)" },
     { value: formatNumber(years.size), label: "années différentes" },
   ];
+  if (state.watchlistCount) cards.push({ value: formatNumber(state.watchlistCount), label: "dans la watchlist" });
+  if (state.likeCount) cards.push({ value: formatNumber(state.likeCount), label: "films likés" });
 
   document.getElementById("stat-cards").innerHTML = cards
     .map((c) => `<div class="card"><div class="value">${c.value}</div><div class="label">${c.label}</div></div>`)

@@ -9,6 +9,14 @@
   <link rel="stylesheet" href="css/style.css" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" defer></script>
   <script type="module" src="js/app.js"></script>
+  <script>
+    if (location.protocol === "file:") {
+      window.addEventListener("DOMContentLoaded", () => {
+        const el = document.getElementById("import-status");
+        if (el) el.textContent = "La page est ouverte en local (file://) : le navigateur bloque les modules JavaScript. Hébergez le site (GitHub Pages) ou lancez un petit serveur local (ex. : npx serve).";
+      });
+    }
+  </script>
 </head>
 <body>
   <header class="site-header">
